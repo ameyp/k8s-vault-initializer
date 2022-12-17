@@ -1,0 +1,1 @@
+Initializes the vault specified by `VAULT_ADDR` environment variable and creates a secret named by the `VAULT_SECRET` environment variable. Uses https://github.com/ameyp/k8s-secret-creator and hence the Prerequisites for that binary must be met.
