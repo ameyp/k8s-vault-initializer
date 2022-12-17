@@ -89,6 +89,7 @@ func main() {
 
 	var isInitialized bool
 	var err error
+	fmt.Println("Checking if vault has been initialized.")
 	// Keep retrying until we can get vault's status
 	for true {
 		isInitialized, err = isVaultInitialized(vault_addr)
@@ -96,7 +97,7 @@ func main() {
 			break
 		}
 
-		fmt.Printf("Vault not ready, error: %v", err)
+		fmt.Printf("Vault not ready, error: %v\n", err)
 		time.Sleep(10 * time.Second)
 	}
 
@@ -105,18 +106,22 @@ func main() {
 		return
 	}
 
+	fmt.Println("Vault has not been initialized.")
 	sealConfig, err := initializeVault(vault_addr)
 	if err != nil {
 		log.Fatalf("Could not initialize vault: %v", err)
 	}
 
+	fmt.Println("Initialized vault.")
 	sealData, err := json.Marshal(*sealConfig)
 	if err != nil {
 		log.Fatalf("Could not convert seal config to byte array")
 	}
+	fmt.Println("Serialized vault seal configuration, creating secret.")
 
 	namespace := getNamespace()
 	secretsManager := k8s_secrets.GetSecretsManager(namespace)
 	secretData := map[string][]byte{"seal-config": sealData}
 	k8s_secrets.CreateSecret("unsealer-keys", secretData, namespace, secretsManager)
+	fmt.Println("Created secret.")
 }
