@@ -1,13 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"time"
 
@@ -16,6 +17,11 @@ import (
 
 type VaultStatus struct {
 	Initialized bool
+}
+
+type VaultInitConfig struct {
+	SecretShares int `json:"secret_shares"`
+	SecretThreshold int `json:"secret_threshold"`
 }
 
 type VaultSealConfig struct {
@@ -44,7 +50,6 @@ func getNamespace() string {
 
 func isVaultInitialized(vault_addr string) (bool, error) {
 	endpoint := fmt.Sprintf("%s/v1/sys/init", vault_addr)
-
 	resp, err := http.Get(endpoint)
 	if err != nil {
 		return false, err
@@ -64,14 +69,27 @@ func isVaultInitialized(vault_addr string) (bool, error) {
 
 func initializeVault(vault_addr string) (*VaultSealConfig, error) {
 	endpoint := fmt.Sprintf("%s/v1/sys/init", vault_addr)
-
-	resp, err := http.PostForm(endpoint,
-		url.Values{"secret_shares": {"5"}, "secret_threshold": {"3"}})
+	data, err := json.Marshal(VaultInitConfig{SecretShares: 5, SecretThreshold: 3})
 
 	if err != nil {
 		return nil, err
 	}
+
+	resp, err := http.Post(endpoint, "application/json", bytes.NewBuffer(data))
+
+	if err != nil {
+		return nil, err
+	}
+
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		responseBody, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New(fmt.Sprintf(
+			"POST response status code: %v, body: %s", resp.StatusCode, string(responseBody)))
+	}
 
 	var sealConfig VaultSealConfig
 	err = json.NewDecoder(resp.Body).Decode(&sealConfig)
