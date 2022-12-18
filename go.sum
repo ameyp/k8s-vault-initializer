@@ -43,6 +43,8 @@ github.com/ameyp/k8s-secret-creator v0.1.5 h1:pSGIT1NCYxZXIVsq8nskTno+AUWZXRo+rf
 github.com/ameyp/k8s-secret-creator v0.1.5/go.mod h1:0LN67qg5GvZbNqYopCYNiwj+7ZVqGJDYk0YRoz3bR3w=
 github.com/ameyp/k8s-secret-creator v0.1.6 h1:5WtjuwPhBPleSvz9WS+8uySn/iY5DRGhYY9VsU5kR4o=
 github.com/ameyp/k8s-secret-creator v0.1.6/go.mod h1:x9YnAsBpmWjwPPP9g/nLdAqDPPu2YiMfKlEKvDUdZaI=
+github.com/ameyp/k8s-secret-creator v0.1.9 h1:CtwmLRldxliIxu+kJP6C5JacUZYdVD/vCzcW9GL9uEA=
+github.com/ameyp/k8s-secret-creator v0.1.9/go.mod h1:x9YnAsBpmWjwPPP9g/nLdAqDPPu2YiMfKlEKvDUdZaI=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
 github.com/chzyer/logex v1.1.10/go.mod h1:+Ywpsq7O8HXn0nuIou7OrIPyXbp3wmkHB+jjWRnGsAI=
 github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e/go.mod h1:nSuG5e5PlCu98SY8svDHJxuZscDgtXS6KTTbou5AhLI=

@@ -135,12 +135,11 @@ func main() {
 		log.Fatalf("Could not convert seal config to byte array")
 	}
 
-	sealData := make([]byte, b64.StdEncoding.EncodedLen(len(sealJson)))
-	b64.StdEncoding.Encode(sealData, sealJson)
+	sealData := b64.StdEncoding.EncodeToString(sealJson)
 
 	fmt.Println("Serialized and encoded vault seal configuration, creating secret.")
 
-	secretData := map[string][]byte{"seal-config": sealData}
+	secretData := map[string]string{"seal-config": sealData}
 	namespace := getNamespace()
 	secretsManager := k8s_secrets.GetSecretsManager(namespace)
 	k8s_secrets.CreateSecret("unsealer-keys", secretData, namespace, secretsManager)
