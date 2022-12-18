@@ -74,7 +74,10 @@ func initializeVault(vault_addr string) (*VaultSealConfig, error) {
 	defer resp.Body.Close()
 
 	var sealConfig VaultSealConfig
-	json.NewDecoder(resp.Body).Decode(&sealConfig)
+	err = json.NewDecoder(resp.Body).Decode(&sealConfig)
+	if err != nil {
+		return nil, err
+	}
 
 	return &sealConfig, nil
 }
