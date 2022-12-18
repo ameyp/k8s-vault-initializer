@@ -136,7 +136,7 @@ func main() {
 
 	var isInitialized bool
 	var err error
-	fmt.Println("Checking if vault has been initialized.")
+	log.Println("Checking if vault has been initialized.")
 	// Keep retrying until we can get vault's status
 	for true {
 		isInitialized, err = isVaultInitialized(vault_addr)
@@ -144,36 +144,45 @@ func main() {
 			break
 		}
 
-		fmt.Printf("Vault not ready, error: %v\n", err)
+		log.Printf("Vault not ready, error: %s\n", err.Error())
 		time.Sleep(10 * time.Second)
 	}
 
 	if isInitialized {
-		fmt.Println("Vault is already initialized.")
+		log.Println("Vault is already initialized.")
 		return
 	}
 
-	fmt.Println("Vault has not been initialized.")
+	log.Println("Vault has not been initialized.")
 	sealConfig, err := initializeVault(vault_addr)
 	if err != nil {
-		log.Fatalf("Could not initialize vault: %v", err)
+		log.Fatalf("Could not initialize vault: %s", err.Error())
 	}
 
-	fmt.Println("Initialized vault.")
+	log.Println("Initialized vault.")
 	sealJson, err := json.Marshal(sealConfig)
 	if err != nil {
 		log.Fatalf("Could not convert seal config to byte array")
 	}
 
-	fmt.Println("Serialized and encoded vault seal configuration, creating secret.")
+	log.Println("Serialized and encoded vault seal configuration, creating secret.")
 
 	secretData := map[string]string{"seal-config": string(sealJson)}
 
 	namespace := getNamespace()
-	secretsManager := k8s_secrets.GetSecretsManager(namespace)
-	k8s_secrets.CreateSecret("unsealer-keys", secretData, namespace, secretsManager)
+	secretsManager, err := k8s_secrets.GetSecretsManager(namespace)
+	if err != nil {
+		log.Fatalf("Could not get secrets manager: %s", err.Error())
+	}
 
-	fmt.Println("Unsealing the vault.")
+	err = k8s_secrets.CreateSecret("unsealer-keys", secretData, namespace, secretsManager)
+	if err != nil {
+		log.Fatalf("Could not create the secret: %s", err.Error())
+	}
+
+	log.Println("Created the secret.")
+
+	log.Println("Unsealing the vault.")
 	for i := 0; i < 3; i += 1 {
 		submitUnsealKey(vault_addr, sealConfig.Keys[i])
 	}
