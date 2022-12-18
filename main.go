@@ -12,7 +12,6 @@ import (
 	"os"
 	"time"
 
-	b64 "encoding/base64"
 	k8s_secrets "github.com/ameyp/k8s-secret-creator/secrets"
 )
 
@@ -135,11 +134,12 @@ func main() {
 		log.Fatalf("Could not convert seal config to byte array")
 	}
 
-	sealData := b64.StdEncoding.EncodeToString(sealJson)
-
 	fmt.Println("Serialized and encoded vault seal configuration, creating secret.")
 
-	secretData := map[string]string{"seal-config": sealData}
+	secretData := map[string]string{"seal-config": string(sealJson)}
+
+	fmt.Println(secretData)
+
 	namespace := getNamespace()
 	secretsManager := k8s_secrets.GetSecretsManager(namespace)
 	k8s_secrets.CreateSecret("unsealer-keys", secretData, namespace, secretsManager)
