@@ -8,6 +8,7 @@ spec:
   containers:
   - name: vault-initializer
     image: ameypar/k8s-vault-initializer
+    imagePullPolicy: Always
     env:
       - name: VAULT_ADDR
         value: http://vault.default.svc:8200

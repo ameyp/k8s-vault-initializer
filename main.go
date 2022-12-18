@@ -30,6 +30,10 @@ type VaultSealConfig struct {
 	RootToken string `json:"root_token"`
 }
 
+type VaultUnsealSubmission struct {
+	Key string
+}
+
 func requireEnv(variable string) []byte {
 	value := os.Getenv(variable)
 	if value == "" {
@@ -100,6 +104,33 @@ func initializeVault(vault_addr string) (*VaultSealConfig, error) {
 	return &sealConfig, nil
 }
 
+func submitUnsealKey(vault_addr string, key string) error {
+	endpoint := fmt.Sprintf("%s/v1/sys/unseal", vault_addr)
+	data, err := json.Marshal(VaultUnsealSubmission{Key: key})
+
+	if err != nil {
+		return err
+	}
+
+	resp, err := http.Post(endpoint, "application/json", bytes.NewBuffer(data))
+
+	if err != nil {
+		return err
+	}
+
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		responseBody, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		return errors.New(fmt.Sprintf(
+			"POST response status code: %v, body: %s", resp.StatusCode, string(responseBody)))
+	}
+
+	return nil
+}
+
 func main() {
 	vault_addr := string(requireEnv("VAULT_ADDR"))
 
@@ -138,9 +169,12 @@ func main() {
 
 	secretData := map[string]string{"seal-config": string(sealJson)}
 
-	fmt.Println(secretData)
-
 	namespace := getNamespace()
 	secretsManager := k8s_secrets.GetSecretsManager(namespace)
 	k8s_secrets.CreateSecret("unsealer-keys", secretData, namespace, secretsManager)
+
+	fmt.Println("Unsealing the vault.")
+	for i := 0; i < 3; i += 1 {
+		submitUnsealKey(vault_addr, sealConfig.Keys[i])
+	}
 }
