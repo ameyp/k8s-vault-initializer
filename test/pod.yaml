@@ -10,4 +10,4 @@ spec:
     image: ameypar/k8s-vault-initializer
     env:
       - name: VAULT_ADDR
-        value: http://vault.vault.svc
+        value: http://vault.default.svc:8200
