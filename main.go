@@ -129,7 +129,7 @@ func main() {
 	}
 
 	fmt.Println("Initialized vault.")
-	sealData, err := json.Marshal(*sealConfig)
+	sealData, err := json.Marshal(sealConfig)
 	if err != nil {
 		log.Fatalf("Could not convert seal config to byte array")
 	}
@@ -139,5 +139,4 @@ func main() {
 	secretsManager := k8s_secrets.GetSecretsManager(namespace)
 	secretData := map[string][]byte{"seal-config": sealData}
 	k8s_secrets.CreateSecret("unsealer-keys", secretData, namespace, secretsManager)
-	fmt.Println("Created secret.")
 }
