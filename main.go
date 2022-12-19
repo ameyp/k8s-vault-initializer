@@ -65,6 +65,11 @@ func isVaultInitialized(vault_addr string) (bool, error) {
 		return false, err
 	}
 
+	if resp.StatusCode != 200 {
+		return false, errors.New(
+			fmt.Sprintf("GET response status code: %v, body: %s", resp.StatusCode, string(body)))
+	}
+
 	var status VaultStatus
 	json.Unmarshal(body, &status)
 
