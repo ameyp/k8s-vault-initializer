@@ -23,7 +23,8 @@ echo "Vault unsealed, transit engine and kubernetes auth enabled."
 
 echo "Port forward vault's HTTP port"
 LOCAL_PORT="45000"
-PID=$(kubectl port-forward pods/vault-unsealer-0 $LOCAL_PORT:8200 &)
+kubectl port-forward pods/vault-unsealer-0 $LOCAL_PORT:8200 &
+PID=$!
 
 echo "Get a valid service account token for an account authorized to access the autounseal transit engine"
 SERVICE_ACCOUNT_TOKEN=$(kubectl create token vault)
