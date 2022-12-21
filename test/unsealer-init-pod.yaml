@@ -3,7 +3,7 @@ kind: Pod
 metadata:
   name: vault-unsealer-init
 spec:
-  serviceAccount: vault-init
+  serviceAccount: vault
   restartPolicy: Never
   containers:
   - name: vault-initializer
