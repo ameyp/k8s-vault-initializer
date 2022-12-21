@@ -1,0 +1,61 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-agent-autounseal
+  namespace: default
+data:
+  "config-init.hcl": |
+    exit_after_auth = true
+
+    pid_file = "/home/vault/pidfile"
+
+    auto_auth {
+      method "kubernetes" {
+        mount_path = "auth/kubernetes"
+        config = {
+          role = "autounseal"
+        }
+      }
+    }
+
+    template {
+      destination = "/vault/secrets/server-config"
+      contents = <<-EOT
+        disable_mlock = true
+        log_level = "debug"
+        ui = true
+        listener "tcp" {
+          tls_disable = 0
+          tls_cert_file = "/vault-tls-internal/tls.crt"
+          tls_key_file = "/vault-tls-internal/tls.key"
+          address = "[::]:8200"
+          cluster_address = "[::]:8201"
+        }
+        listener "tcp" {
+          tls_disable = 0
+          tls_cert_file = "/vault-tls-web/tls.crt"
+          tls_key_file = "/vault-tls-web/tls.key"
+          address = "[::]:8300"
+          cluster_address = "[::]:8301"
+        }
+        seal "transit" {
+          address = "http://vault-unsealer.default.svc:8200"
+          disable_renewal = "false"
+          key_name = "autounseal"
+          mount_path = "transit/"
+          tls_skip_verify = "true"
+          {{ with secret "auth/token/lookup-self" -}}
+          token = "{{ .Data.id }}"
+          {{ end }}
+        }
+        storage "raft" {
+          path = "/vault/data"
+          retry_join {
+            leader_api_addr = "https://vault-0.vault-internal:8200"
+            leader_ca_cert_file = "/vault-tls-internal/tls.crt"
+          }
+        }
+        service_registration "kubernetes" {}
+        EOT
+    }

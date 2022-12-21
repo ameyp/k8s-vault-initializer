@@ -1,17 +1,46 @@
 global:
-  tlsDisable: true
+  tlsDisable: false
+ui:
+  enabled: true
+  activeVaultPodOnly: true
+  externalPort: 8300
+  targetPort: 8300
 server:
-  logLevel: trace
-  standalone:
+  extraArgs: "-config=/vault/secrets/server-config"
+  logLevel: Trace
+  annotations:
+    vault.hashicorp.com/agent-inject: 'true'
+    vault.hashicorp.com/agent-pre-populate-only: 'true' # No sidecar
+    vault.hashicorp.com/role: 'autounseal'
+    vault.hashicorp.com/agent-configmap: 'vault-agent-autounseal'
+  ha:
     enabled: true
-    config: |
-      ui = true
-
-      listener "tcp" {
-        tls_disable = 1
-        address = "[::]:8200"
-        cluster_address = "[::]:8201"
-      }
-      storage "file" {
-        path = "/vault/data"
-      }
+    replicas: 1
+    raft:
+      enabled: true
+      config: ""
+  dataStorage:
+    size: 2Gi
+    storageClass: standard
+  volumes:
+    - name: "vault-tls-internal"
+      secret:
+        secretName: vault-internal-tls-secret
+    - name: "vault-tls-web"
+      secret:
+        secretName: vault-internal-tls-secret
+  volumeMounts:
+    - mountPath: "/vault-tls-internal"
+      name: "vault-tls-internal"
+    - mountPath: "/vault-tls-web"
+      name: "vault-tls-web"
+  extraLabels:
+    unseal-injector: enabled
+injector:
+  enabled: true
+  webhook:
+    objectSelector:
+      matchLabels:
+        vault-injector: enabled
+csi:
+  enabled: true
