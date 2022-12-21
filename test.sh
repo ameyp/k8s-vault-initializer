@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # Install vault
 helm repo add hashicorp https://helm.releases.hashicorp.com
 helm repo update
@@ -9,7 +11,7 @@ helm install vault-unsealer hashicorp/vault -f test/vault-unsealer-values.yaml
 kubectl apply -f test/rbac.yaml
 
 # Create a pod with the image we want to test
-kubectl apply -f test/pod.yaml
+kubectl apply -f test/unsealer-init-pod.yaml
 
 # Wait for vault to be initialized and unsealed by the pod
 while [[ $(kubectl get pod vault-unsealer-0 -o jsonpath="{.status.containerStatuses[0].ready}") != 'true' ]]; do
