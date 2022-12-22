@@ -305,7 +305,7 @@ path "transit/decrypt/autounseal" {
 // curl $VAULT_ADDR/v1/auth/kubernetes/role/autounseal -H "X-Vault-Token: $VAULT_TOKEN" -X POST --data-raw '{"bound_service_account_names": ["vault"], "bound_service_account_namespaces": ["vault", "default"], "token_period": "3600", "token_policies": ["autounseal"]}'
 func (vault *Vault) createAutoUnsealRole(token string) error {
 	data, err := json.Marshal(VaultRole{
-		BoundServiceAccountNames: []string{"vault-init"},
+		BoundServiceAccountNames: []string{"vault"},
 		BoundServiceAccountNamespaces: []string{"vault", "default"},
 		TokenPeriod: "3600",
 		TokenPolicies: []string{"autounseal"},

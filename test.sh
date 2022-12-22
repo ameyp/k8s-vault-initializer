@@ -56,29 +56,6 @@ wait_for_pod_ready vault-unsealer-0
 
 echo "Vault unsealed, transit engine and kubernetes auth enabled."
 
-echo "Port forward vault's HTTP port"
-LOCAL_PORT="45000"
-kubectl port-forward pods/vault-unsealer-0 $LOCAL_PORT:8200 &
-PID=$!
-
-echo "Wait for the port to be up"
-while [[ $(curl -s http://localhost:$LOCAL_PORT/v1/sys/health | jq ".sealed") != 'false' ]]; do
-    echo "Vault is not yet reachable on the local port forward"
-    sleep 2
-done
-
-echo "Get a valid service account token for an account authorized to access the autounseal transit engine"
-SERVICE_ACCOUNT_TOKEN=$(kubectl create token vault-init)
-
-echo "Login using the service account token and get a valid vault token"
-VAULT_TOKEN=$(curl -s http://localhost:$LOCAL_PORT/v1/auth/kubernetes/login -X POST --data-raw "{\"role\": \"autounseal\", \"jwt\": \"$SERVICE_ACCOUNT_TOKEN\"}" | jq -r '.auth.client_token')
-
-# We just care that the request succeeds and returns encrypted text.
-echo "Encrypting text using the transit engine"
-curl -s "http://localhost:$LOCAL_PORT/v1/transit/encrypt/autounseal" \
-     -H "X-Vault-Token: $VAULT_TOKEN" \
-     -X POST --data-raw '{"plaintext": "abcd"}' | jq -r '.data.ciphertext'
-
 # For the second vault cluster
 
 echo "Create the certificates"
@@ -113,6 +90,3 @@ wait_for_pod_ready vault-0
 
 echo "Remove local cert files"
 rm -f *.crt *.key
-
-echo "Remove the port forward"
-kill $PID
