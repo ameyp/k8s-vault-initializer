@@ -4,7 +4,7 @@ metadata:
   name: vault-unsealer-init
 spec:
   serviceAccount: vault-init
-  restartPolicy: Always
+  restartPolicy: Never
   containers:
   - name: vault-initializer
     image: ameypar/k8s-vault-initializer
