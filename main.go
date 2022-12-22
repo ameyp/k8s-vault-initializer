@@ -169,7 +169,7 @@ func (vault *Vault) initializeForAutoUnseal() (*VaultSealSecretKeys, error) {
 	vaultInitConfig := VaultInitConfig{SecretShares: 5, SecretThreshold: 3}
 	var secretKeys VaultSealSecretKeys
 
-	if err := vault.initialize(vaultInitConfig, secretKeys); err != nil {
+	if err := vault.initialize(vaultInitConfig, &secretKeys); err != nil {
 		return nil, fmt.Errorf("Could not initialize vault for auto-unsealing other vaults: %w", err)
 	}
 
