@@ -3,6 +3,7 @@
 set -euo pipefail
 
 UNSEAL_INITIALIZER="vault-unsealer-init"
+MAIN_INITIALIZER="vault-init"
 
 function wait_for_pod_ready() {
     local POD_NAME=$1
@@ -37,13 +38,13 @@ function wait_for_pod_termination() {
 echo "Create service accounts, roles and bindings"
 kubectl apply -f test/rbac.yaml
 
-echo "Create a pod with the image we want to test"
+echo "Create the initializer pod"
 kubectl apply -f test/unsealer-init-pod.yaml
 
 echo "Wait for the initializer to start"
 wait_for_pod_ready $UNSEAL_INITIALIZER
 
-echo "Install vault"
+echo "Install vault unsealer"
 helm repo add hashicorp https://helm.releases.hashicorp.com
 helm repo update
 helm install vault-unsealer hashicorp/vault -f test/vault-unsealer-values.yaml
@@ -67,7 +68,7 @@ while [[ $(curl -s http://localhost:$LOCAL_PORT/v1/sys/health | jq ".sealed") !=
 done
 
 echo "Get a valid service account token for an account authorized to access the autounseal transit engine"
-SERVICE_ACCOUNT_TOKEN=$(kubectl create token vault)
+SERVICE_ACCOUNT_TOKEN=$(kubectl create token vault-init)
 
 echo "Login using the service account token and get a valid vault token"
 VAULT_TOKEN=$(curl -s http://localhost:$LOCAL_PORT/v1/auth/kubernetes/login -X POST --data-raw "{\"role\": \"autounseal\", \"jwt\": \"$SERVICE_ACCOUNT_TOKEN\"}" | jq -r '.auth.client_token')
@@ -80,16 +81,38 @@ curl -s "http://localhost:$LOCAL_PORT/v1/transit/encrypt/autounseal" \
 
 # For the second vault cluster
 
-echo "Create the certificate"
+echo "Create the certificates"
 openssl req -x509 -newkey rsa:4096 -sha256 -days 1 -nodes \
-        -keyout vault.key -out vault.crt -subj "/CN=*.vault-internal" \
+        -keyout internal.key -out internal.crt -subj "/CN=*.vault-internal" \
         -addext "subjectAltName=DNS:*.vault-internal,IP:127.0.0.1"
 
-echo "Create the secret"
-kubectl create secret tls vault-internal-tls-secret --key="vault.key" --cert="vault.crt"
+openssl req -x509 -newkey rsa:4096 -sha256 -days 1 -nodes \
+        -keyout web.key -out web.crt -subj "/CN=vault-ui.default.svc" \
+        -addext "subjectAltName=DNS:vault-ui.default.svc"
+
+echo "Create the secrets"
+kubectl create secret tls vault-internal-tls-secret --key="internal.key" --cert="internal.crt"
+kubectl create secret tls vault-web-tls-secret --key="web.key" --cert="web.crt"
+
+echo "Create the injector config-map"
+kubectl apply -f test/agent-configmap.yaml
+
+echo "Create the initializer pod"
+kubectl apply -f test/vault-init-pod.yaml
+
+echo "Wait for the initializer to start"
+wait_for_pod_ready $MAIN_INITIALIZER
+
+echo "Install vault"
+helm install vault hashicorp/vault -f test/vault-values.yaml
+
+wait_for_pod_termination $MAIN_INITIALIZER
+
+echo "Wait for vault to be ready"
+wait_for_pod_ready vault-0
 
 echo "Remove local cert files"
-rm -f vault.crt vault.key
+rm -f *.crt *.key
 
 echo "Remove the port forward"
 kill $PID

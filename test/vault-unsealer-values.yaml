@@ -15,3 +15,8 @@ server:
       storage "file" {
         path = "/vault/data"
       }
+injector:
+  webhook:
+    objectSelector:
+      matchLabels:
+        unseal-injector: enabled

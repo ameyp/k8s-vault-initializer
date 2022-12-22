@@ -3,20 +3,21 @@ kind: Pod
 metadata:
   name: vault-init
 spec:
-  serviceAccount: vault
-  restartPolicy: Never
+  serviceAccount: vault-init
+  restartPolicy: Always
   containers:
   - name: vault-initializer
     image: ameypar/k8s-vault-initializer
     imagePullPolicy: Never
     env:
       - name: VAULT_ADDR
-        value: https://vault-0.default.svc:8300
+        value: https://vault-ui.default.svc:8300
       - name: VAULT_CACERT
         value: /vault-tls/tls.crt
     volumeMounts:
       - name: vault-tls
-        path: /vault-tls
+        mountPath: /vault-tls
   volumes:
     - name: vault-tls
-      secret: vault-internal-tls-secret
+      secret:
+        secretName: vault-web-tls-secret

@@ -27,7 +27,7 @@ server:
         secretName: vault-internal-tls-secret
     - name: "vault-tls-web"
       secret:
-        secretName: vault-internal-tls-secret
+        secretName: vault-web-tls-secret
   volumeMounts:
     - mountPath: "/vault-tls-internal"
       name: "vault-tls-internal"

@@ -73,7 +73,19 @@ type VaultRole struct {
 func (sealConfig *VaultSealSecretKeys) toMap() map[string]string {
 	sealMap := make(map[string]string)
 
-	sealMap["rookToken"] = sealConfig.RootToken
+	sealMap["rootToken"] = sealConfig.RootToken
+
+	for i := 0; i < len(sealConfig.Keys); i++ {
+		sealMap[fmt.Sprintf("key%d", i+1)] = sealConfig.Keys[i]
+	}
+
+	return sealMap
+}
+
+func (sealConfig *VaultSealRecoveryKeys) toMap() map[string]string {
+	sealMap := make(map[string]string)
+
+	sealMap["rootToken"] = sealConfig.RootToken
 
 	for i := 0; i < len(sealConfig.Keys); i++ {
 		sealMap[fmt.Sprintf("key%d", i+1)] = sealConfig.Keys[i]
@@ -293,7 +305,7 @@ path "transit/decrypt/autounseal" {
 // curl $VAULT_ADDR/v1/auth/kubernetes/role/autounseal -H "X-Vault-Token: $VAULT_TOKEN" -X POST --data-raw '{"bound_service_account_names": ["vault"], "bound_service_account_namespaces": ["vault", "default"], "token_period": "3600", "token_policies": ["autounseal"]}'
 func (vault *Vault) createAutoUnsealRole(token string) error {
 	data, err := json.Marshal(VaultRole{
-		BoundServiceAccountNames: []string{"vault"},
+		BoundServiceAccountNames: []string{"vault-init"},
 		BoundServiceAccountNamespaces: []string{"vault", "default"},
 		TokenPeriod: "3600",
 		TokenPolicies: []string{"autounseal"},
@@ -329,6 +341,7 @@ func main() {
 	var vaultForAutounseal = flag.Bool("vault-for-autounseal", false,
 		"Whether the vault instance should be set up for auto-unsealing other vaults")
 	flag.Parse()
+	fmt.Println(*vaultForAutounseal)
 
 	vault_addr := string(requireEnv("VAULT_ADDR"))
 	vault := Vault{Address: vault_addr}
@@ -412,7 +425,7 @@ func main() {
 			log.Fatalf("Could not create autounseal role: %s", err.Error())
 		}
 	} else {
-		sealConfig, err := vault.initializeForAutoUnseal()
+		sealConfig, err := vault.initializeWithTransitSeal()
 		if err != nil {
 			log.Fatalf("Could not initialize vault: %s", err.Error())
 		}
