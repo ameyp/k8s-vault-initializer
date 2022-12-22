@@ -2,7 +2,6 @@ global:
   tlsDisable: false
 ui:
   enabled: true
-  activeVaultPodOnly: true
   externalPort: 8300
   targetPort: 8300
 server:

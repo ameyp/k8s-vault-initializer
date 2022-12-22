@@ -25,6 +25,7 @@ data:
         disable_mlock = true
         log_level = "debug"
         ui = true
+        // For peers in the raft to talk to each other
         listener "tcp" {
           tls_disable = 0
           tls_cert_file = "/vault-tls-internal/tls.crt"
@@ -32,6 +33,7 @@ data:
           address = "[::]:8200"
           cluster_address = "[::]:8201"
         }
+        // For clients to talk to the cluster
         listener "tcp" {
           tls_disable = 0
           tls_cert_file = "/vault-tls-web/tls.crt"

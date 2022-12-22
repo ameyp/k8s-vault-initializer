@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -24,9 +27,23 @@ type VaultInitConfig struct {
 	SecretThreshold int `json:"secret_threshold"`
 }
 
-type VaultSealConfig struct {
-	Keys []string
+type VaultTransitSealInitConfig struct {
+	StoredShares int `json:"stored_shares"`
+	RecoveryShares int `json:"recovery_shares"`
+	RecoveryThreshold int `json:"recovery_threshold"`
+}
+
+type VaultSealSecretKeys struct {
+	Keys []string `json:"keys"`
 	KeysBase64 []string `json:"keys_base64"`
+	RootToken string `json:"root_token"`
+}
+
+type VaultSealRecoveryKeys struct {
+	Keys []string `json:"keys"`
+	KeysBase64 []string `json:"keys_base64"`
+	RecoveryKeys []string `json:"recovery_keys"`
+	RecoveryKeys64 []string `json:"recovery_keys_base64"`
 	RootToken string `json:"root_token"`
 }
 
@@ -53,7 +70,7 @@ type VaultRole struct {
 	TokenPolicies []string `json:"token_policies"`
 }
 
-func (sealConfig *VaultSealConfig) toMap() map[string]string {
+func (sealConfig *VaultSealSecretKeys) toMap() map[string]string {
 	sealMap := make(map[string]string)
 
 	sealMap["rookToken"] = sealConfig.RootToken
@@ -65,27 +82,36 @@ func (sealConfig *VaultSealConfig) toMap() map[string]string {
 	return sealMap
 }
 
-func requireEnv(variable string) []byte {
-	value := os.Getenv(variable)
-	if value == "" {
-		log.Fatalf("ENV variable %s is not set", variable)
-	}
-
-	return []byte(value)
+type Vault struct {
+	Address string
+	client *http.Client
 }
 
-func getNamespace() string {
-	namespace, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
-	if err != nil {
-		log.Fatalf("Could not read namespace file: %v", err.Error())
-	}
+func (vault *Vault) SetupClient() {
+	if certFile := os.Getenv("VAULT_CACERT"); certFile != "" {
+		caCert, err := ioutil.ReadFile(certFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM(caCert)
 
-	return string(namespace)
+		vault.client = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					RootCAs:      caCertPool,
+				},
+			},
+		}
+
+	} else {
+		vault.client = &http.Client{}
+	}
 }
 
-func isVaultInitialized(vault_addr string) (bool, error) {
-	endpoint := fmt.Sprintf("%s/v1/sys/init", vault_addr)
-	resp, err := http.Get(endpoint)
+func (vault *Vault) isInitialized() (bool, error) {
+	endpoint := fmt.Sprintf("%s/v1/sys/init", vault.Address)
+	resp, err := vault.client.Get(endpoint)
 	if err != nil {
 		return false, fmt.Errorf("Could not create GET request: %w", err)
 	}
@@ -107,41 +133,61 @@ func isVaultInitialized(vault_addr string) (bool, error) {
 	return status.Initialized, nil
 }
 
-func initializeVault(vault_addr string) (*VaultSealConfig, error) {
-	endpoint := fmt.Sprintf("%s/v1/sys/init", vault_addr)
-	data, err := json.Marshal(VaultInitConfig{SecretShares: 5, SecretThreshold: 3})
+func (vault *Vault) initialize(initConfig any, initResponse any) error {
+	endpoint := fmt.Sprintf("%s/v1/sys/init", vault.Address)
+	data, err := json.Marshal(initConfig)
 
 	if err != nil {
-		return nil, fmt.Errorf("Could not marshal VaultInitConfig: %w", err)
+		return fmt.Errorf("Could not marshal VaultInitConfig: %w", err)
 	}
 
-	resp, err := http.Post(endpoint, "application/json", bytes.NewBuffer(data))
+	resp, err := vault.client.Post(endpoint, "application/json", bytes.NewBuffer(data))
 
 	if err != nil {
-		return nil, fmt.Errorf("Could not make POST request: %w", err)
+		return fmt.Errorf("Could not make POST request: %w", err)
 	}
 
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 && resp.StatusCode != 204 {
 		responseBody, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			return nil, fmt.Errorf("Could not read response of vault initialization: %w", err)
+			return fmt.Errorf("Could not read response of vault initialization: %w", err)
 		}
-		return nil, errors.New(fmt.Sprintf(
+		return errors.New(fmt.Sprintf(
 			"POST response status code: %v, body: %s", resp.StatusCode, string(responseBody)))
 	}
 
-	var sealConfig VaultSealConfig
-	err = json.NewDecoder(resp.Body).Decode(&sealConfig)
+	err = json.NewDecoder(resp.Body).Decode(initResponse)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("Could not unmarshal the JSON response of vault initialization: %w", err)
 	}
 
-	return &sealConfig, nil
+	return nil
 }
 
-func makePostRequest(endpoint string, data []byte, token ...string) error {
-	client := &http.Client{}
+func (vault *Vault) initializeForAutoUnseal() (*VaultSealSecretKeys, error) {
+	vaultInitConfig := VaultInitConfig{SecretShares: 5, SecretThreshold: 3}
+	var secretKeys VaultSealSecretKeys
+
+	if err := vault.initialize(vaultInitConfig, secretKeys); err != nil {
+		return nil, fmt.Errorf("Could not initialize vault for auto-unsealing other vaults: %w", err)
+	}
+
+	return &secretKeys, nil
+}
+
+func (vault *Vault) initializeWithTransitSeal() (*VaultSealRecoveryKeys, error) {
+	vaultInitConfig := VaultTransitSealInitConfig{StoredShares: 5, RecoveryShares: 5, RecoveryThreshold: 5}
+	var recoveryKeys VaultSealRecoveryKeys
+
+	if err := vault.initialize(vaultInitConfig, &recoveryKeys); err != nil {
+		return nil, fmt.Errorf("Could not initialize vault with transit seal: %w", err)
+	}
+
+	return &recoveryKeys, nil
+}
+
+func (vault *Vault) makePostRequest(endpoint string, data []byte, token ...string) error {
 	var dataReader io.Reader
 	if data != nil {
 		dataReader = bytes.NewReader(data)
@@ -157,7 +203,7 @@ func makePostRequest(endpoint string, data []byte, token ...string) error {
 		req.Header.Add("X-Vault-Token", token[0])
 	}
 
-	resp, err := client.Do(req)
+	resp, err := vault.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("Could not make POST request: %w", err)
 	}
@@ -175,57 +221,57 @@ func makePostRequest(endpoint string, data []byte, token ...string) error {
 	return nil
 }
 
-func submitUnsealKey(vault_addr string, key string) error {
+func (vault *Vault) submitUnsealKey(key string) error {
 	data, err := json.Marshal(VaultUnsealSubmission{Key: key})
 
 	if err != nil {
 		return fmt.Errorf("Could not marshal VaultUnsealSubmission: %w", err)
 	}
 
-	endpoint := fmt.Sprintf("%s/v1/sys/unseal", vault_addr)
-	return makePostRequest(endpoint, data)
+	endpoint := fmt.Sprintf("%s/v1/sys/unseal", vault.Address)
+	return vault.makePostRequest(endpoint, data)
 }
 
-func enableTransitEngine(vault_addr string, token string) error {
+func (vault *Vault) enableTransitEngine(token string) error {
 	data, err := json.Marshal(VaultSecretEngine{Type: "transit"})
 	if err != nil {
 		return fmt.Errorf("Could not marshal VaultSecretEngine: %w", err)
 	}
 
-	endpoint := fmt.Sprintf("%s/v1/sys/mounts/transit", vault_addr)
-	return makePostRequest(endpoint, data, token)
+	endpoint := fmt.Sprintf("%s/v1/sys/mounts/transit", vault.Address)
+	return vault.makePostRequest(endpoint, data, token)
 }
 
 // curl $VAULT_ADDR/v1/transit/keys/autounseal -H "X-Vault-Token: $VAULT_TOKEN" -X POST
-func createAutoUnsealKey(vault_addr string, token string) error {
-	endpoint := fmt.Sprintf("%s/v1/transit/keys/autounseal", vault_addr)
-	return makePostRequest(endpoint, nil, token)
+func (vault *Vault) createAutoUnsealKey(token string) error {
+	endpoint := fmt.Sprintf("%s/v1/transit/keys/autounseal", vault.Address)
+	return vault.makePostRequest(endpoint, nil, token)
 }
 
 // curl $VAULT_ADDR/v1/sys/auth/kubernetes -H "X-Vault-Token: $VAULT_TOKEN" -X POST --data-raw '{"type": "kubernetes"}'
-func enableKubernetesAuth(vault_addr string, token string) error {
+func (vault *Vault) enableKubernetesAuth(token string) error {
 	data, err := json.Marshal(VaultSecretEngine{Type: "kubernetes"})
 	if err != nil {
 		return fmt.Errorf("Could not marshal VaultSecretEngine: %w", err)
 	}
 
-	endpoint := fmt.Sprintf("%s/v1/sys/auth/kubernetes", vault_addr)
-	return makePostRequest(endpoint, data, token)
+	endpoint := fmt.Sprintf("%s/v1/sys/auth/kubernetes", vault.Address)
+	return vault.makePostRequest(endpoint, data, token)
 }
 
 // curl $VAULT_ADDR/v1/auth/kubernetes/config -H "X-Vault-Token: $VAULT_TOKEN" -X POST --data-raw '{"kubernetes_host": "https://kubernetes.default.svc"}'
-func configureKubernetesAuth(vault_addr, token string) error {
+func (vault *Vault) configureKubernetesAuth(token string) error {
 	data, err := json.Marshal(VaultKubernetesConfig{KubernetesHost: "https://kubernetes.default.svc"})
 	if err != nil {
 		return fmt.Errorf("Could not marshal VaultKubernetesConfig: %w", err)
 	}
 
-	endpoint := fmt.Sprintf("%s/v1/auth/kubernetes/config", vault_addr)
-	return makePostRequest(endpoint, data, token)
+	endpoint := fmt.Sprintf("%s/v1/auth/kubernetes/config", vault.Address)
+	return vault.makePostRequest(endpoint, data, token)
 }
 
 // curl $VAULT_ADDR/v1/sys/policy/autounseal -H "X-Vault-Token: $VAULT_TOKEN" -X POST --data-raw '{"policy": "path \"transit/encrypt/autounseal\" { capabilities = [ \"update\" ] } \n\n path \"transit/decrypt/autounseal\" { capabilities = [ \"update\" ] }"}'
-func createAutoUnsealPolicy(vault_addr, token string) error {
+func (vault *Vault) createAutoUnsealPolicy(token string) error {
 	policy := `
 path "transit/encrypt/autounseal" {
   capabilities = [ "update" ]
@@ -240,12 +286,12 @@ path "transit/decrypt/autounseal" {
 		return fmt.Errorf("Could not marshal VaultPolicy: %w", err)
 	}
 
-	endpoint := fmt.Sprintf("%s/v1/sys/policy/autounseal", vault_addr)
-	return makePostRequest(endpoint, data, token)
+	endpoint := fmt.Sprintf("%s/v1/sys/policy/autounseal", vault.Address)
+	return vault.makePostRequest(endpoint, data, token)
 }
 
 // curl $VAULT_ADDR/v1/auth/kubernetes/role/autounseal -H "X-Vault-Token: $VAULT_TOKEN" -X POST --data-raw '{"bound_service_account_names": ["vault"], "bound_service_account_namespaces": ["vault", "default"], "token_period": "3600", "token_policies": ["autounseal"]}'
-func createAutoUnsealRole(vault_addr, token string) error {
+func (vault *Vault) createAutoUnsealRole(token string) error {
 	data, err := json.Marshal(VaultRole{
 		BoundServiceAccountNames: []string{"vault"},
 		BoundServiceAccountNamespaces: []string{"vault", "default"},
@@ -256,19 +302,44 @@ func createAutoUnsealRole(vault_addr, token string) error {
 		return fmt.Errorf("Could not marshal VaultRole: %w", err)
 	}
 
-	endpoint := fmt.Sprintf("%s/v1/auth/kubernetes/role/autounseal", vault_addr)
-	return makePostRequest(endpoint, data, token)
+	endpoint := fmt.Sprintf("%s/v1/auth/kubernetes/role/autounseal", vault.Address)
+	return vault.makePostRequest(endpoint, data, token)
 }
 
+func requireEnv(variable string) []byte {
+	value := os.Getenv(variable)
+	if value == "" {
+		log.Fatalf("ENV variable %s is not set", variable)
+	}
+
+	return []byte(value)
+}
+
+func getNamespace() string {
+	namespace, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	if err != nil {
+		log.Fatalf("Could not read namespace file: %v", err.Error())
+	}
+
+	return string(namespace)
+}
+
+
 func main() {
+	var vaultForAutounseal = flag.Bool("vault-for-autounseal", false,
+		"Whether the vault instance should be set up for auto-unsealing other vaults")
+	flag.Parse()
+
 	vault_addr := string(requireEnv("VAULT_ADDR"))
+	vault := Vault{Address: vault_addr}
+	vault.SetupClient()
 
 	var isInitialized bool
 	var err error
 	log.Println("Checking if vault has been initialized.")
 	// Keep retrying until we can get vault's status
 	for true {
-		isInitialized, err = isVaultInitialized(vault_addr)
+		isInitialized, err = vault.isInitialized()
 		if err == nil {
 			break
 		}
@@ -283,15 +354,6 @@ func main() {
 	}
 
 	log.Println("Vault has not been initialized.")
-	sealConfig, err := initializeVault(vault_addr)
-	if err != nil {
-		log.Fatalf("Could not initialize vault: %s", err.Error())
-	}
-
-	log.Println("Initialized vault.")
-
-	secretData := sealConfig.toMap()
-	log.Println("Serialized and encoded vault seal configuration, creating secret.")
 
 	namespace := getNamespace()
 	secretsManager, err := k8s_secrets.GetSecretsManager(namespace)
@@ -299,47 +361,70 @@ func main() {
 		log.Fatalf("Could not get secrets manager: %s", err.Error())
 	}
 
-	err = k8s_secrets.CreateSecret("unsealer-keys", secretData, namespace, secretsManager)
-	if err != nil {
-		log.Fatalf("Could not create the secret: %s", err.Error())
+	if *vaultForAutounseal {
+		sealConfig, err := vault.initializeForAutoUnseal()
+		if err != nil {
+			log.Fatalf("Could not initialize vault: %s", err.Error())
+		}
+
+		log.Println("Initialized vault.")
+
+		secretData := sealConfig.toMap()
+		log.Println("Serialized and encoded vault seal configuration, creating secret.")
+
+		err = k8s_secrets.CreateSecret("vault-secret-keys", secretData, namespace, secretsManager)
+		if err != nil {
+			log.Fatalf("Could not create the secret: %s", err.Error())
+		}
+
+		log.Println("Unsealing the vault.")
+		for i := 0; i < 3; i += 1 {
+			vault.submitUnsealKey(sealConfig.Keys[i])
+		}
+
+		log.Println("Enabling transit engine.")
+		if err = vault.enableTransitEngine(sealConfig.RootToken); err != nil {
+			log.Fatalf("Could not enable transit engine: %s", err.Error())
+		}
+
+		log.Println("Creating autounseal key.")
+		if err = vault.createAutoUnsealKey(sealConfig.RootToken); err != nil {
+			log.Fatalf("Could not create autounseal key: %s", err.Error())
+		}
+
+		log.Println("Enabling kubernetes auth.")
+		if err = vault.enableKubernetesAuth(sealConfig.RootToken); err != nil {
+			log.Fatalf("Could not enable kubernetes auth: %s", err.Error())
+		}
+
+		log.Println("Configuring kubernetes auth")
+		if err = vault.configureKubernetesAuth(sealConfig.RootToken); err != nil {
+			log.Fatalf("Could not configure kubernetes auth: %s", err.Error())
+		}
+
+		log.Println("Creating autounseal policy")
+		if err = vault.createAutoUnsealPolicy(sealConfig.RootToken); err != nil {
+			log.Fatalf("Could not create autounseal policy: %s", err.Error())
+		}
+
+		log.Println("Creating autounseal role")
+		if err = vault.createAutoUnsealRole(sealConfig.RootToken); err != nil {
+			log.Fatalf("Could not create autounseal role: %s", err.Error())
+		}
+	} else {
+		sealConfig, err := vault.initializeForAutoUnseal()
+		if err != nil {
+			log.Fatalf("Could not initialize vault: %s", err.Error())
+		}
+
+		log.Println("Initialized vault.")
+
+		secretData := sealConfig.toMap()
+		log.Println("Serialized and encoded vault seal configuration, creating secret.")
+
+		err = k8s_secrets.CreateSecret("vault-recovery-keys", secretData, namespace, secretsManager)
+		if err != nil {
+			log.Fatalf("Could not create the secret: %s", err.Error())
+		}
 	}
-
-	log.Println("Created the secret.")
-
-	log.Println("Unsealing the vault.")
-	for i := 0; i < 3; i += 1 {
-		submitUnsealKey(vault_addr, sealConfig.Keys[i])
-	}
-
-	log.Println("Enabling transit engine.")
-	if err = enableTransitEngine(vault_addr, sealConfig.RootToken); err != nil {
-		log.Fatalf("Could not enable transit engine: %s", err.Error())
-	}
-
-	log.Println("Creating autounseal key.")
-	if err = createAutoUnsealKey(vault_addr, sealConfig.RootToken); err != nil {
-		log.Fatalf("Could not create autounseal key: %s", err.Error())
-	}
-
-	log.Println("Enabling kubernetes auth.")
-	if err = enableKubernetesAuth(vault_addr, sealConfig.RootToken); err != nil {
-		log.Fatalf("Could not enable kubernetes auth: %s", err.Error())
-	}
-
-	log.Println("Configuring kubernetes auth")
-	if err = configureKubernetesAuth(vault_addr, sealConfig.RootToken); err != nil {
-		log.Fatalf("Could not configure kubernetes auth: %s", err.Error())
-	}
-
-	log.Println("Creating autounseal policy")
-	if err = createAutoUnsealPolicy(vault_addr, sealConfig.RootToken); err != nil {
-		log.Fatalf("Could not create autounseal policy: %s", err.Error())
-	}
-
-	log.Println("Creating autounseal role")
-	if err = createAutoUnsealRole(vault_addr, sealConfig.RootToken); err != nil {
-		log.Fatalf("Could not create autounseal role: %s", err.Error())
-	}
-
-	// curl http://vault.default.svc:8200/v1/auth/kubernetes/login -X POST --data-raw "{\"role\": \"redis\", \"jwt\": \"$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\"}"
 }
