@@ -12,6 +12,8 @@ function wait_for_pod_ready() {
         echo "$POD_NAME is not yet ready"
         sleep 10
     done
+
+    echo "$POD_NAME is ready"
 }
 
 function wait_for_pod_termination() {
@@ -71,6 +73,9 @@ echo "Create the secrets"
 kubectl create secret tls vault-internal-tls-secret --key="internal.key" --cert="internal.crt"
 kubectl create secret tls vault-web-tls-secret --key="web.key" --cert="web.crt"
 
+echo "Remove local cert files"
+rm -f *.crt *.key
+
 echo "Create the injector config-map"
 kubectl apply -f test/agent-configmap.yaml
 
@@ -87,6 +92,3 @@ wait_for_pod_termination $MAIN_INITIALIZER
 
 echo "Wait for vault to be ready"
 wait_for_pod_ready vault-0
-
-echo "Remove local cert files"
-rm -f *.crt *.key
