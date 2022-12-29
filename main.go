@@ -318,6 +318,56 @@ func (vault *Vault) createAutoUnsealRole(token string) error {
 	return vault.makePostRequest(endpoint, data, token)
 }
 
+func (vault *Vault) createOperatorPolicy(token string) error {
+	policy := `
+    path "sys/auth" {
+      capabilities = ["create", "list", "read"]
+    }
+
+    path "auth/kubernetes/config" {
+      capabilities = ["read"]
+    }
+
+    path "auth/kubernetes/role/*" {
+      capabilities = ["create", "update", "list", "read", "delete"]
+    }
+
+    path "sys/mounts" {
+      capabilities = ["list", "read"]
+    }
+
+    path "sys/mounts/*" {
+      capabilities = ["create", "update", "list", "read", "delete"]
+    }
+
+    path "sys/policy/*" {
+      capabilities = ["create", "update", "list", "read", "delete"]
+    }
+`
+	data, err := json.Marshal(VaultPolicy{Policy: policy})
+	if err != nil {
+		return fmt.Errorf("Could not marshal VaultPolicy: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("%s/v1/sys/policy/operator", vault.Address)
+	return vault.makePostRequest(endpoint, data, token)
+}
+
+func (vault *Vault) createOperatorRole(token string) error {
+	data, err := json.Marshal(VaultRole{
+		BoundServiceAccountNames: []string{"default"},
+		BoundServiceAccountNamespaces: []string{"vault"},
+		TokenPeriod: "3600",
+		TokenPolicies: []string{"operator"},
+	})
+	if err != nil {
+		return fmt.Errorf("Could not marshal VaultRole: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("%s/v1/auth/kubernetes/role/operator", vault.Address)
+	return vault.makePostRequest(endpoint, data, token)
+}
+
 func requireEnv(variable string) []byte {
 	value := os.Getenv(variable)
 	if value == "" {
@@ -438,6 +488,26 @@ func main() {
 		err = k8s_secrets.CreateSecret("vault-recovery-keys", secretData, namespace, secretsManager)
 		if err != nil {
 			log.Fatalf("Could not create the secret: %s", err.Error())
+		}
+
+		log.Println("Enabling kubernetes auth.")
+		if err = vault.enableKubernetesAuth(sealConfig.RootToken); err != nil {
+			log.Fatalf("Could not enable kubernetes auth: %s", err.Error())
+		}
+
+		log.Println("Configuring kubernetes auth")
+		if err = vault.configureKubernetesAuth(sealConfig.RootToken); err != nil {
+			log.Fatalf("Could not configure kubernetes auth: %s", err.Error())
+		}
+
+		log.Println("Creating operator policy")
+		if err = vault.createOperatorPolicy(sealConfig.RootToken); err != nil {
+			log.Fatalf("Could not create operator policy: %s", err.Error())
+		}
+
+		log.Println("Creating operator role")
+		if err = vault.createOperatorRole(sealConfig.RootToken); err != nil {
+			log.Fatalf("Could not create operator role: %s", err.Error())
 		}
 	}
 }
