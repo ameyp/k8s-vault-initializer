@@ -66,8 +66,9 @@ type VaultPolicy struct {
 type VaultRole struct {
 	BoundServiceAccountNames []string `json:"bound_service_account_names"`
 	BoundServiceAccountNamespaces []string `json:"bound_service_account_namespaces"`
-	TokenTTL string `json:"token_ttl"`
-	TokenMaxTTL string `json:"token_max_ttl"`
+	TokenTTL string `json:"token_ttl,omitempty"`
+	TokenMaxTTL string `json:"token_max_ttl,omitempty"`
+	TokenPeriod string `json:"token_period,omitempty"`
 	TokenPolicies []string `json:"token_policies"`
 }
 
@@ -363,7 +364,8 @@ func (vault *Vault) createOperatorRole(token string) error {
 	data, err := json.Marshal(VaultRole{
 		BoundServiceAccountNames: []string{"default"},
 		BoundServiceAccountNamespaces: []string{"vault"},
-		TokenPeriod: "3600",
+		TokenTTL: "120",
+		TokenMaxTTL: "120",
 		TokenPolicies: []string{"operator"},
 	})
 	if err != nil {
