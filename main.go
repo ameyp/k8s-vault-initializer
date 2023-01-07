@@ -66,7 +66,8 @@ type VaultPolicy struct {
 type VaultRole struct {
 	BoundServiceAccountNames []string `json:"bound_service_account_names"`
 	BoundServiceAccountNamespaces []string `json:"bound_service_account_namespaces"`
-	TokenPeriod string `json:"token_period"`
+	TokenTTL string `json:"token_ttl"`
+	TokenMaxTTL string `json:"token_max_ttl"`
 	TokenPolicies []string `json:"token_policies"`
 }
 
@@ -292,6 +293,10 @@ path "transit/encrypt/autounseal" {
 path "transit/decrypt/autounseal" {
   capabilities = [ "update" ]
 }
+
+path "token/lookup-self" {
+  capabilities = [ "read" ]
+}
 `
 	data, err := json.Marshal(VaultPolicy{Policy: policy})
 	if err != nil {
@@ -307,7 +312,8 @@ func (vault *Vault) createAutoUnsealRole(token string) error {
 	data, err := json.Marshal(VaultRole{
 		BoundServiceAccountNames: []string{"vault"},
 		BoundServiceAccountNamespaces: []string{"vault", "default"},
-		TokenPeriod: "3600",
+		TokenTTL: "120",
+		TokenMaxTTL: "120",
 		TokenPolicies: []string{"autounseal"},
 	})
 	if err != nil {
