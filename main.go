@@ -179,12 +179,12 @@ func (vault *Vault) initialize(initConfig any, initResponse any) error {
 	return nil
 }
 
-func (vault *Vault) initializeForAutoUnseal() (*VaultSealSecretKeys, error) {
+func (vault *Vault) initializeWithDefaultSeal() (*VaultSealSecretKeys, error) {
 	vaultInitConfig := VaultInitConfig{SecretShares: 5, SecretThreshold: 3}
 	var secretKeys VaultSealSecretKeys
 
 	if err := vault.initialize(vaultInitConfig, &secretKeys); err != nil {
-		return nil, fmt.Errorf("Could not initialize vault for auto-unsealing other vaults: %w", err)
+		return nil, fmt.Errorf("Could not initialize vault with default seal: %w", err)
 	}
 
 	return &secretKeys, nil
@@ -396,10 +396,9 @@ func getNamespace() string {
 
 
 func main() {
-	var vaultForAutounseal = flag.Bool("vault-for-autounseal", false,
-		"Whether the vault instance should be set up for auto-unsealing other vaults")
+	var initializationMode = flag.String("mode", "unsealer",
+		"The mode in which the vault should be initialized. Possible models are: unsealer | autounseal | standalone")
 	flag.Parse()
-	fmt.Println(*vaultForAutounseal)
 
 	vault_addr := string(requireEnv("VAULT_ADDR"))
 	vault := Vault{Address: vault_addr}
@@ -432,8 +431,8 @@ func main() {
 		log.Fatalf("Could not get secrets manager: %s", err.Error())
 	}
 
-	if *vaultForAutounseal {
-		sealConfig, err := vault.initializeForAutoUnseal()
+	if *initializationMode == "unsealer" {
+		sealConfig, err := vault.initializeWithDefaultSeal()
 		if err != nil {
 			log.Fatalf("Could not initialize vault: %s", err.Error())
 		}
@@ -482,7 +481,7 @@ func main() {
 		if err = vault.createAutoUnsealRole(sealConfig.RootToken); err != nil {
 			log.Fatalf("Could not create autounseal role: %s", err.Error())
 		}
-	} else {
+	} else if *initializationMode == "autounseal" {
 		sealConfig, err := vault.initializeWithTransitSeal()
 		if err != nil {
 			log.Fatalf("Could not initialize vault: %s", err.Error())
@@ -517,5 +516,47 @@ func main() {
 		if err = vault.createOperatorRole(sealConfig.RootToken); err != nil {
 			log.Fatalf("Could not create operator role: %s", err.Error())
 		}
+	} else if *initializationMode == "standalone" {
+		sealConfig, err := vault.initializeWithDefaultSeal()
+		if err != nil {
+			log.Fatalf("Could not initialize vault: %s", err.Error())
+		}
+
+		log.Println("Initialized vault.")
+
+		secretData := sealConfig.toMap()
+		log.Println("Serialized and encoded vault seal configuration, creating secret.")
+
+		err = k8s_secrets.CreateSecret("vault-secret-keys", secretData, namespace, secretsManager)
+		if err != nil {
+			log.Fatalf("Could not create the secret: %s", err.Error())
+		}
+
+		log.Println("Unsealing the vault.")
+		for i := 0; i < 3; i += 1 {
+			vault.submitUnsealKey(sealConfig.Keys[i])
+		}
+
+		log.Println("Enabling kubernetes auth.")
+		if err = vault.enableKubernetesAuth(sealConfig.RootToken); err != nil {
+			log.Fatalf("Could not enable kubernetes auth: %s", err.Error())
+		}
+
+		log.Println("Configuring kubernetes auth")
+		if err = vault.configureKubernetesAuth(sealConfig.RootToken); err != nil {
+			log.Fatalf("Could not configure kubernetes auth: %s", err.Error())
+		}
+
+		log.Println("Creating operator policy")
+		if err = vault.createOperatorPolicy(sealConfig.RootToken); err != nil {
+			log.Fatalf("Could not create operator policy: %s", err.Error())
+		}
+
+		log.Println("Creating operator role")
+		if err = vault.createOperatorRole(sealConfig.RootToken); err != nil {
+			log.Fatalf("Could not create operator role: %s", err.Error())
+		}
+	} else {
+		log.Fatalf("Unknown mode specified: %s\n", *initializationMode)
 	}
 }
