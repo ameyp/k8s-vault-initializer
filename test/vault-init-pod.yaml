@@ -9,6 +9,7 @@ spec:
   - name: vault-initializer
     image: ameypar/k8s-vault-initializer
     imagePullPolicy: Never
+    args: ["-mode=autounseal"]
     env:
       - name: VAULT_ADDR
         value: https://vault-ui.default.svc:8300
