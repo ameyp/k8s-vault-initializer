@@ -313,8 +313,7 @@ func (vault *Vault) createAutoUnsealRole(token string) error {
 	data, err := json.Marshal(VaultRole{
 		BoundServiceAccountNames: []string{"vault"},
 		BoundServiceAccountNamespaces: []string{"vault", "default"},
-		TokenTTL: "120",
-		TokenMaxTTL: "120",
+		TokenPeriod: "3600",
 		TokenPolicies: []string{"autounseal"},
 	})
 	if err != nil {
