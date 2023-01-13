@@ -349,6 +349,10 @@ func (vault *Vault) createOperatorPolicy(token string) error {
     path "sys/policy/*" {
       capabilities = ["create", "update", "list", "read", "delete"]
     }
+
+    path "sys/policies/acl/*" {
+      capabilities = ["create", "update", "list", "read", "delete"]
+    }
 `
 	data, err := json.Marshal(VaultPolicy{Policy: policy})
 	if err != nil {
